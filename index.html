@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Convertidor Ultra-Inteligente: NotebookLM a HTML Limpio</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #1e1e2e;
+            color: #cdd6f4;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1300px;
+            margin: 0 auto;
+        }
+        h2 { color: #89b4fa; text-align: center; margin-bottom: 5px; }
+        p.subtitle { text-align: center; color: #a6adc8; margin-bottom: 25px; font-size: 14px; }
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        .box {
+            display: flex;
+            flex-direction: column;
+        }
+        label {
+            font-weight: bold;
+            margin-bottom: 8px;
+            color: #b4befe;
+        }
+        textarea {
+            width: 100%;
+            height: 480px;
+            background-color: #11111b;
+            color: #f38ba8;
+            border: 1px solid #45475a;
+            border-radius: 8px;
+            padding: 12px;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 14px;
+            box-sizing: border-box;
+            resize: none;
+        }
+        textarea[readonly] {
+            color: #a6e3a1;
+        }
+        .actions {
+            grid-column: 1 / -1;
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            margin-top: 15px;
+        }
+        button {
+            padding: 14px 28px;
+            font-size: 16px;
+            font-weight: bold;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: transform 0.1s, background 0.2s;
+        }
+        button:active { transform: scale(0.98); }
+        .btn-convert { background-color: #89b4fa; color: #11111b; }
+        .btn-convert:hover { background-color: #b4befe; }
+        .btn-copy { background-color: #a6e3a1; color: #11111b; }
+        .btn-copy:hover { background-color: #94e2d5; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>Auto-Reparador y Convertidor de Ejercicios v2.0</h2>
+    <p class="subtitle">Une automáticamente textos fragmentados, repara exponentes y genera HTML limpio para MathJax.</p>
+    
+    <div class="grid">
+        <div class="box">
+            <label for="markdownInput">1. Pega aquí el texto tal como sale de NotebookLM (Roto):</label>
+            <textarea id="markdownInput" placeholder="Pega el texto aquí..."></textarea>
+        </div>
+        
+        <div class="box">
+            <label for="htmlOutput">2. Código HTML Reparado y Estructurado:</label>
+            <textarea id="htmlOutput" readonly placeholder="El código HTML optimizado aparecerá aquí..."></textarea>
+        </div>
+    </div>
+
+    <div class="actions">
+        <button class="btn-convert" onclick="procesarYConvertir()">⚡ Reparar y Convertir a HTML</button>
+        <button class="btn-copy" onclick="copiarAlPortapapeles()">📋 Copiar Código HTML</button>
+    </div>
+</div>
+
+<script>
+function reconstruirTextoDestrozado(texto) {
+    // 1. Unificar saltos de línea estándar
+    let lineas = texto.split(/\r?\n/).map(l => l.trim());
+    let bloquesReconstruidos = [];
+    let bloqueActual = "";
+
+    lineas.forEach(linea => {
+        if (linea === "") return;
+
+        // Si la línea empieza con una opción (A., B., C., D.), cerramos el bloque anterior e iniciamos uno nuevo
+        if (/^[A-D]\.\s*/i.test(linea)) {
+            if (bloqueActual.trim() !== "") {
+                bloquesReconstruidos.push(bloqueActual.trim());
+            }
+            bloqueActual = linea;
+        } 
+        // Si detectamos el inicio de una nueva pregunta (usualmente no empieza con opción ni caracteres huérfanos)
+        else if (/^¿/i.test(linea)) {
+            if (bloqueActual.trim() !== "") {
+                bloquesReconstruidos.push(bloqueActual.trim());
+            }
+            bloqueActual = linea;
+        }
+        // Si es texto suelto, exponentes o símbolos huérfanos, los "soldamos" al bloque actual
+        else {
+            // Manejo inteligente de exponentes caídos
+            if (/^\d+$/.test(linea) && (bloqueActual.endsWith('x') || bloqueActual.endsWith('y') || bloqueActual.endsWith(')'))) {
+                bloqueActual += "^" + linea;
+            } else {
+                // Agregar un espacio solo si no es un signo de puntuación o cierre de paréntesis pegado
+                if (/^[\?\)\]]/.test(linea) || bloqueActual.endsWith('(')) {
+                    bloqueActual += linea;
+                } else {
+                    bloqueActual += " " + linea;
+                }
+            }
+        }
+    });
+
+    if (bloqueActual.trim() !== "") {
+        bloquesReconstruidos.push(bloqueActual.trim());
+    }
+
+    return bloquesReconstruidos;
+}
+
+function procesarYConvertir() {
+    const inputRaw = document.getElementById('markdownInput').value;
+    if (!inputRaw.trim()) return;
+
+    // 1. Reconstruir los renglones destrozados por NotebookLM
+    const bloques = reconstruirTextoDestrozado(inputRaw);
+
+    let htmlResultado = "";
+    let dentroDeLista = false;
+
+    bloques.forEach(bloque => {
+        // Formatear expresiones algebraicas que tengan exponentes ^ para que lleven signos de $
+        if (bloque.includes('^')) {
+            // Esta expresión regular envuelve los monomios/polinomios con exponentes en $ de forma segura
+            bloque = bloque.replace(/([a-zA-Z0-9]*\^[0-9]+(?:[a-zA-Z0-9\s\+\-\(\)\=\^\$]*))/g, function(match) {
+                if (match.startsWith('$')) return match; // Evitar doble envoltura
+                return '$' + match.trim() + '$';
+            });
+            // Limpieza por si se duplican los símbolos de dólar
+            bloque = bloque.replace(/\$\$/g, '$');
+        }
+
+        // Detectar si el bloque es una opción de respuesta (A., B., etc.)
+        let esOpcion = /^[A-D]\.\s*/i.test(bloque);
+
+        if (esOpcion) {
+            if (!dentroDeLista) {
+                htmlResultado += "<ul>\n";
+                dentroDeLista = true;
+            }
+            let letraMatch = bloque.match(/^([A-D]\.)/i);
+            let prefijo = letraMatch ? `<strong>${letraMatch[1]}</strong> ` : "";
+            let contenidoOpcion = bloque.replace(/^[A-D]\.\s*/i, '');
+            
+            htmlResultado += `  <li>${prefijo}${contenidoOpcion}</li>\n`;
+        } else {
+            if (dentroDeLista) {
+                htmlResultado += "</ul>\n";
+                dentroDeLista = false;
+            }
+            htmlResultado += `<p>${bloque}</p>\n`;
+        }
+    });
+
+    if (dentroDeLista) {
+        htmlResultado += "</ul>\n";
+    }
+
+    document.getElementById('htmlOutput').value = htmlResultado.trim();
+}
+
+function copiarAlPortapapeles() {
+    const output = document.getElementById('htmlOutput');
+    output.select();
+    document.execCommand('copy');
+    alert('¡Código HTML perfectamente unificado y copiado!');
+}
+</script>
+
+</body>
+</html>
